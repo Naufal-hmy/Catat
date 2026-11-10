@@ -1,0 +1,5 @@
+# This file configures the analyzer.
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
