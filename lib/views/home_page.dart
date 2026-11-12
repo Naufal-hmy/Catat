@@ -3,6 +3,9 @@ import '../models/task_item.dart';
 import '../services/task_storage.dart';
 import '../theme/app_theme.dart';
 import 'task_form_dialog.dart';
+import 'widgets/calendar_deadline_view.dart';
+import 'widgets/dashboard_stats_chart.dart';
+import 'widgets/notification_modal.dart';
 import 'widgets/task_card.dart';
 
 class HomePage extends StatefulWidget {
@@ -24,11 +27,13 @@ class _HomePageState extends State<HomePage> {
   bool _isLoading = true;
 
   TaskFilter _selectedFilter = TaskFilter.all;
+  DateTime? _selectedCalendarDate;
   String? _selectedCourse;
   String _searchQuery = '';
   TaskSortBy _sortBy = TaskSortBy.deadlineAsc;
 
   bool _isSearchExpandedMobile = false;
+  bool _showChartsOnMobile = false;
   final TextEditingController _searchController = TextEditingController();
 
   @override
@@ -46,7 +51,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _initData() async {
     final loaded = await TaskStorage.loadTasks();
     if (loaded.isEmpty) {
-      // First run default starter tasks so user has instant visual feedback
+      // First run default starter tasks so user has instant varied visual feedback
       _tasks = TaskStorage.getStarterTasks();
       await TaskStorage.saveTasks(_tasks);
     } else {
@@ -96,8 +101,16 @@ class _HomePageState extends State<HomePage> {
     if (index == -1) return;
 
     final nextStatus = !task.isCompleted;
+    // If completing the task, also mark all subtasks complete for consistency
+    final updatedSubtasks = nextStatus
+        ? task.subtasks.map((s) => s.copyWith(isCompleted: true)).toList()
+        : task.subtasks;
+
     setState(() {
-      _tasks[index] = task.copyWith(isCompleted: nextStatus);
+      _tasks[index] = task.copyWith(
+        isCompleted: nextStatus,
+        subtasks: updatedSubtasks,
+      );
     });
     await _saveTasks();
 
@@ -114,6 +127,26 @@ class _HomePageState extends State<HomePage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  Future<void> _toggleSubtask(TaskItem task, int subtaskIndex) async {
+    final index = _tasks.indexWhere((item) => item.id == task.id);
+    if (index == -1 || subtaskIndex >= task.subtasks.length) return;
+
+    final subtasks = List<SubTask>.from(task.subtasks);
+    final currentSub = subtasks[subtaskIndex];
+    subtasks[subtaskIndex] =
+        currentSub.copyWith(isCompleted: !currentSub.isCompleted);
+
+    final allDone = subtasks.isNotEmpty && subtasks.every((s) => s.isCompleted);
+
+    setState(() {
+      _tasks[index] = task.copyWith(
+        subtasks: subtasks,
+        isCompleted: allDone ? true : task.isCompleted,
+      );
+    });
+    await _saveTasks();
   }
 
   Future<void> _deleteTask(TaskItem task) async {
@@ -166,6 +199,14 @@ class _HomePageState extends State<HomePage> {
   int get _highPriorityCount =>
       _tasks.where((t) => t.priority == TaskPriority.high && !t.isCompleted).length;
 
+  int get _notificationAlertCount {
+    final overdue = _tasks.where((t) => t.isOverdue).length;
+    final dueToday = _tasks.where((t) => t.isDueToday && !t.isCompleted).length;
+    final dueTomorrow =
+        _tasks.where((t) => t.isDueTomorrow && !t.isCompleted).length;
+    return overdue + dueToday + dueTomorrow;
+  }
+
   List<String> get _courseList {
     final set = <String>{};
     for (final t in _tasks) {
@@ -180,6 +221,11 @@ class _HomePageState extends State<HomePage> {
     final query = _searchQuery.trim().toLowerCase();
 
     final filtered = _tasks.where((task) {
+      // Calendar date filter
+      if (_selectedCalendarDate != null) {
+        if (!task.isSameDay(_selectedCalendarDate!)) return false;
+      }
+
       // Course filter
       if (_selectedCourse != null && task.course != _selectedCourse) {
         return false;
@@ -189,6 +235,7 @@ class _HomePageState extends State<HomePage> {
       final matchesFilter = switch (_selectedFilter) {
         TaskFilter.all => true,
         TaskFilter.today => task.isDueToday,
+        TaskFilter.calendar => true,
         TaskFilter.pending => !task.isCompleted,
         TaskFilter.completed => task.isCompleted,
         TaskFilter.highPriority => task.priority == TaskPriority.high,
@@ -201,7 +248,9 @@ class _HomePageState extends State<HomePage> {
         final inTitle = task.title.toLowerCase().contains(query);
         final inCourse = task.course.toLowerCase().contains(query);
         final inNotes = task.notes.toLowerCase().contains(query);
-        if (!inTitle && !inCourse && !inNotes) return false;
+        final inSubtasks =
+            task.subtasks.any((s) => s.title.toLowerCase().contains(query));
+        if (!inTitle && !inCourse && !inNotes && !inSubtasks) return false;
       }
 
       return true;
@@ -218,7 +267,6 @@ class _HomePageState extends State<HomePage> {
         case TaskSortBy.deadlineAsc:
           return a.deadline.compareTo(b.deadline);
         case TaskSortBy.priorityDesc:
-          // high (2), medium (1), low (0)
           return b.priority.index.compareTo(a.priority.index);
         case TaskSortBy.titleAsc:
           return a.title.toLowerCase().compareTo(b.title.toLowerCase());
@@ -255,6 +303,14 @@ class _HomePageState extends State<HomePage> {
     ];
     final dayName = days[now.weekday - 1];
     return '$dayName, ${now.day} ${months[now.month - 1]} ${now.year}';
+  }
+
+  void _showNotificationCenter() {
+    NotificationModal.show(
+      context,
+      tasks: _tasks,
+      onSelectTask: (t) => _openTaskForm(task: t),
+    );
   }
 
   @override
@@ -347,6 +403,9 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
 
+                        // Notification Center Bell Button with Badge
+                        _buildNotificationBellButton(),
+
                         // Search icon button
                         IconButton(
                           icon: Icon(
@@ -381,7 +440,7 @@ class _HomePageState extends State<HomePage> {
                         autofocus: true,
                         style: TextStyle(fontSize: 14, color: textPrimary),
                         decoration: InputDecoration(
-                          hintText: 'Ketik nama tugas atau mata kuliah...',
+                          hintText: 'Ketik nama tugas, subtask, atau mata kuliah...',
                           prefixIcon: const Icon(Icons.search_rounded, size: 20),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
@@ -407,6 +466,78 @@ class _HomePageState extends State<HomePage> {
 
                     // Calm Daily Motivation & Progress Card
                     _buildDailySummaryCard(progress, isDark),
+
+                    const SizedBox(height: 14),
+
+                    // Toggle Button: Tampilkan Grafik & Kalender di Mobile
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 42),
+                              side: BorderSide(
+                                color: _showChartsOnMobile
+                                    ? Theme.of(context).primaryColor
+                                    : (isDark
+                                        ? AppTheme.darkBorder
+                                        : AppTheme.lightBorder),
+                              ),
+                              backgroundColor: _showChartsOnMobile
+                                  ? Theme.of(context)
+                                      .primaryColor
+                                      .withValues(alpha: 0.08)
+                                  : Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _showChartsOnMobile = !_showChartsOnMobile;
+                              });
+                            },
+                            icon: Icon(
+                              _showChartsOnMobile
+                                  ? Icons.expand_less_rounded
+                                  : Icons.insights_rounded,
+                              size: 18,
+                              color: _showChartsOnMobile
+                                  ? Theme.of(context).primaryColor
+                                  : textPrimary,
+                            ),
+                            label: Text(
+                              _showChartsOnMobile
+                                  ? 'Sembunyikan Grafik & Kalender'
+                                  : 'Lihat Grafik & Kalender Deadline',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _showChartsOnMobile
+                                    ? Theme.of(context).primaryColor
+                                    : textPrimary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    // Mobile Expandable Charts & Calendar
+                    if (_showChartsOnMobile) ...[
+                      const SizedBox(height: 16),
+                      DashboardStatsChart(tasks: _tasks),
+                      const SizedBox(height: 16),
+                      CalendarDeadlineView(
+                        tasks: _tasks,
+                        selectedDate: _selectedCalendarDate,
+                        onDateSelected: (date) {
+                          setState(() {
+                            _selectedCalendarDate = date;
+                          });
+                        },
+                      ),
+                    ],
 
                     const SizedBox(height: 18),
 
@@ -463,12 +594,16 @@ class _HomePageState extends State<HomePage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          _getFilterTitle(),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: textPrimary,
+                        Flexible(
+                          child: Text(
+                            _getFilterTitle(),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: textPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         _buildSortDropdown(isDark),
@@ -497,6 +632,7 @@ class _HomePageState extends State<HomePage> {
                         onToggle: _toggleTaskStatus,
                         onEdit: (t) => _openTaskForm(task: t),
                         onDelete: _deleteTask,
+                        onSubtaskToggle: _toggleSubtask,
                       );
                     },
                     childCount: _filteredTasks.length,
@@ -531,7 +667,7 @@ class _HomePageState extends State<HomePage> {
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
     final sidebarBg = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
     final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final isWide = constraints.maxWidth >= 1100;
+    final isVeryWide = constraints.maxWidth >= 1200;
 
     return Scaffold(
       body: Row(
@@ -580,7 +716,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                             Text(
-                              'Ruang Produktivitas',
+                              'Dashboard Produktivitas',
                               style: TextStyle(
                                 fontSize: 12,
                                 color: textSecondary,
@@ -638,11 +774,13 @@ class _HomePageState extends State<HomePage> {
                         icon: Icons.list_alt_rounded,
                         count: _totalCount,
                         isSelected: _selectedFilter == TaskFilter.all &&
-                            _selectedCourse == null,
+                            _selectedCourse == null &&
+                            _selectedCalendarDate == null,
                         onTap: () {
                           setState(() {
                             _selectedFilter = TaskFilter.all;
                             _selectedCourse = null;
+                            _selectedCalendarDate = null;
                           });
                         },
                       ),
@@ -651,11 +789,13 @@ class _HomePageState extends State<HomePage> {
                         icon: Icons.today_rounded,
                         count: _todayCount,
                         isSelected: _selectedFilter == TaskFilter.today &&
-                            _selectedCourse == null,
+                            _selectedCourse == null &&
+                            _selectedCalendarDate == null,
                         onTap: () {
                           setState(() {
                             _selectedFilter = TaskFilter.today;
                             _selectedCourse = null;
+                            _selectedCalendarDate = null;
                           });
                         },
                       ),
@@ -664,11 +804,13 @@ class _HomePageState extends State<HomePage> {
                         icon: Icons.timelapse_rounded,
                         count: _pendingCount,
                         isSelected: _selectedFilter == TaskFilter.pending &&
-                            _selectedCourse == null,
+                            _selectedCourse == null &&
+                            _selectedCalendarDate == null,
                         onTap: () {
                           setState(() {
                             _selectedFilter = TaskFilter.pending;
                             _selectedCourse = null;
+                            _selectedCalendarDate = null;
                           });
                         },
                       ),
@@ -677,11 +819,13 @@ class _HomePageState extends State<HomePage> {
                         icon: Icons.check_circle_outline_rounded,
                         count: _completedCount,
                         isSelected: _selectedFilter == TaskFilter.completed &&
-                            _selectedCourse == null,
+                            _selectedCourse == null &&
+                            _selectedCalendarDate == null,
                         onTap: () {
                           setState(() {
                             _selectedFilter = TaskFilter.completed;
                             _selectedCourse = null;
+                            _selectedCalendarDate = null;
                           });
                         },
                       ),
@@ -691,11 +835,13 @@ class _HomePageState extends State<HomePage> {
                         count: _highPriorityCount,
                         iconColor: const Color(0xFFDC2626),
                         isSelected: _selectedFilter == TaskFilter.highPriority &&
-                            _selectedCourse == null,
+                            _selectedCourse == null &&
+                            _selectedCalendarDate == null,
                         onTap: () {
                           setState(() {
                             _selectedFilter = TaskFilter.highPriority;
                             _selectedCourse = null;
+                            _selectedCalendarDate = null;
                           });
                         },
                       ),
@@ -724,6 +870,7 @@ class _HomePageState extends State<HomePage> {
                             onTap: () {
                               setState(() {
                                 _selectedCourse = isSelected ? null : course;
+                                _selectedCalendarDate = null;
                               });
                             },
                           );
@@ -806,10 +953,10 @@ class _HomePageState extends State<HomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Desktop Header (Search, Sort, Add Task button)
+                // Desktop Header (Search, Sort, Notification, Add Task button)
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
+                      const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
                   decoration: BoxDecoration(
                     color: sidebarBg,
                     border: Border(
@@ -826,7 +973,7 @@ class _HomePageState extends State<HomePage> {
                             controller: _searchController,
                             style: TextStyle(fontSize: 14, color: textPrimary),
                             decoration: InputDecoration(
-                              hintText: 'Cari tugas, mata kuliah, catatan...',
+                              hintText: 'Cari tugas, subtask, mata kuliah...',
                               prefixIcon:
                                   const Icon(Icons.search_rounded, size: 20),
                               suffixIcon: _searchQuery.isNotEmpty
@@ -851,11 +998,15 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
+
+                      // Notification Center Bell Button
+                      _buildNotificationBellButton(),
+                      const SizedBox(width: 12),
 
                       // Sort dropdown
                       _buildSortDropdown(isDark),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 14),
 
                       // Add Task Button
                       ElevatedButton.icon(
@@ -881,105 +1032,124 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
-                // Main Tasks View
+                // Main Dashboard Body: Split into Tasks & Analytics/Calendar
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 24,
+                      horizontal: 28,
+                      vertical: 20,
                     ),
-                    child: Column(
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Heading Row
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _getFilterTitle(),
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w800,
-                                    color: textPrimary,
-                                    letterSpacing: -0.3,
+                        // Left / Center Column: Task list
+                        Expanded(
+                          flex: 3,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Heading Row
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _getFilterTitle(),
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                          color: textPrimary,
+                                          letterSpacing: -0.3,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _formatTodayHeader(),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: textSecondary,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatTodayHeader(),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: textSecondary,
-                                    fontWeight: FontWeight.w500,
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? AppTheme.darkSurfaceSecondary
+                                          : AppTheme.lightSurfaceSecondary,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: borderColor),
+                                    ),
+                                    child: Text(
+                                      '${_filteredTasks.length} tugas ditampilkan',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: textSecondary,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
+                                ],
                               ),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? AppTheme.darkSurfaceSecondary
-                                    : AppTheme.lightSurfaceSecondary,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: borderColor),
+
+                              const SizedBox(height: 16),
+
+                              // Tasks List Area
+                              Expanded(
+                                child: _filteredTasks.isEmpty
+                                    ? _buildEmptyState(isDark)
+                                    : ListView.builder(
+                                        itemCount: _filteredTasks.length,
+                                        itemBuilder: (context, index) {
+                                          final task = _filteredTasks[index];
+                                          return TaskCard(
+                                            task: task,
+                                            onToggle: _toggleTaskStatus,
+                                            onEdit: (t) =>
+                                                _openTaskForm(task: t),
+                                            onDelete: _deleteTask,
+                                            onSubtaskToggle: _toggleSubtask,
+                                          );
+                                        },
+                                      ),
                               ),
-                              child: Text(
-                                '${_filteredTasks.length} tugas ditampilkan',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: textSecondary,
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
 
-                        const SizedBox(height: 20),
+                        const SizedBox(width: 24),
 
-                        // Tasks Area
-                        Expanded(
-                          child: _filteredTasks.isEmpty
-                              ? _buildEmptyState(isDark)
-                              : isWide
-                                  ? GridView.builder(
-                                      gridDelegate:
-                                          const SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: 2,
-                                        childAspectRatio: 2.1,
-                                        crossAxisSpacing: 16,
-                                        mainAxisSpacing: 16,
-                                      ),
-                                      itemCount: _filteredTasks.length,
-                                      itemBuilder: (context, index) {
-                                        final task = _filteredTasks[index];
-                                        return TaskCard(
-                                          task: task,
-                                          onToggle: _toggleTaskStatus,
-                                          onEdit: (t) => _openTaskForm(task: t),
-                                          onDelete: _deleteTask,
-                                        );
-                                      },
-                                    )
-                                  : ListView.builder(
-                                      itemCount: _filteredTasks.length,
-                                      itemBuilder: (context, index) {
-                                        final task = _filteredTasks[index];
-                                        return TaskCard(
-                                          task: task,
-                                          onToggle: _toggleTaskStatus,
-                                          onEdit: (t) => _openTaskForm(task: t),
-                                          onDelete: _deleteTask,
-                                        );
-                                      },
-                                    ),
+                        // Right Column on Desktop: Calendar & Graphic Dashboard
+                        SizedBox(
+                          width: isVeryWide ? 380 : 330,
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              // Interactive Calendar View
+                              CalendarDeadlineView(
+                                tasks: _tasks,
+                                selectedDate: _selectedCalendarDate,
+                                onDateSelected: (date) {
+                                  setState(() {
+                                    _selectedCalendarDate = date;
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 18),
+
+                              // Statistics & Analytics Charts
+                              DashboardStatsChart(tasks: _tasks),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -996,6 +1166,43 @@ class _HomePageState extends State<HomePage> {
   // ==========================================
   // SHARED WIDGET HELPERS
   // ==========================================
+
+  Widget _buildNotificationBellButton() {
+    final alertCount = _notificationAlertCount;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications_outlined, size: 22),
+          tooltip: 'Pusat Notifikasi & Deadline',
+          onPressed: _showNotificationCenter,
+        ),
+        if (alertCount > 0)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: const BoxDecoration(
+                color: Color(0xFFDC2626),
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              child: Text(
+                '$alertCount',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _buildDailySummaryCard(double progress, bool isDark) {
     final textPrimary =
@@ -1095,10 +1302,13 @@ class _HomePageState extends State<HomePage> {
           _buildChip(
             label: 'Semua',
             count: _totalCount,
-            isSelected: _selectedFilter == TaskFilter.all && _selectedCourse == null,
+            isSelected: _selectedFilter == TaskFilter.all &&
+                _selectedCourse == null &&
+                _selectedCalendarDate == null,
             onTap: () => setState(() {
               _selectedFilter = TaskFilter.all;
               _selectedCourse = null;
+              _selectedCalendarDate = null;
             }),
             isDark: isDark,
           ),
@@ -1106,10 +1316,13 @@ class _HomePageState extends State<HomePage> {
           _buildChip(
             label: 'Hari Ini',
             count: _todayCount,
-            isSelected: _selectedFilter == TaskFilter.today && _selectedCourse == null,
+            isSelected: _selectedFilter == TaskFilter.today &&
+                _selectedCourse == null &&
+                _selectedCalendarDate == null,
             onTap: () => setState(() {
               _selectedFilter = TaskFilter.today;
               _selectedCourse = null;
+              _selectedCalendarDate = null;
             }),
             isDark: isDark,
           ),
@@ -1117,10 +1330,13 @@ class _HomePageState extends State<HomePage> {
           _buildChip(
             label: 'Berjalan',
             count: _pendingCount,
-            isSelected: _selectedFilter == TaskFilter.pending && _selectedCourse == null,
+            isSelected: _selectedFilter == TaskFilter.pending &&
+                _selectedCourse == null &&
+                _selectedCalendarDate == null,
             onTap: () => setState(() {
               _selectedFilter = TaskFilter.pending;
               _selectedCourse = null;
+              _selectedCalendarDate = null;
             }),
             isDark: isDark,
           ),
@@ -1128,10 +1344,13 @@ class _HomePageState extends State<HomePage> {
           _buildChip(
             label: 'Selesai',
             count: _completedCount,
-            isSelected: _selectedFilter == TaskFilter.completed && _selectedCourse == null,
+            isSelected: _selectedFilter == TaskFilter.completed &&
+                _selectedCourse == null &&
+                _selectedCalendarDate == null,
             onTap: () => setState(() {
               _selectedFilter = TaskFilter.completed;
               _selectedCourse = null;
+              _selectedCalendarDate = null;
             }),
             isDark: isDark,
           ),
@@ -1139,10 +1358,13 @@ class _HomePageState extends State<HomePage> {
           _buildChip(
             label: 'Prioritas Tinggi',
             count: _highPriorityCount,
-            isSelected: _selectedFilter == TaskFilter.highPriority && _selectedCourse == null,
+            isSelected: _selectedFilter == TaskFilter.highPriority &&
+                _selectedCourse == null &&
+                _selectedCalendarDate == null,
             onTap: () => setState(() {
               _selectedFilter = TaskFilter.highPriority;
               _selectedCourse = null;
+              _selectedCalendarDate = null;
             }),
             isDark: isDark,
           ),
@@ -1539,12 +1761,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   String _getFilterTitle() {
+    if (_selectedCalendarDate != null) {
+      return 'Tenggat: ${TaskItem.formatIndonesianDate(_selectedCalendarDate!)}';
+    }
     if (_selectedCourse != null) {
       return 'Mata Kuliah: $_selectedCourse';
     }
     return switch (_selectedFilter) {
       TaskFilter.all => 'Semua Tugas',
       TaskFilter.today => 'Tugas Hari Ini',
+      TaskFilter.calendar => 'Kalender Deadline',
       TaskFilter.pending => 'Tugas Sedang Berjalan',
       TaskFilter.completed => 'Tugas Selesai',
       TaskFilter.highPriority => 'Prioritas Tinggi',
@@ -1558,17 +1784,23 @@ class _HomePageState extends State<HomePage> {
         isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
 
     final isSearching = _searchQuery.isNotEmpty;
+    final isCalendarFiltered = _selectedCalendarDate != null;
+
     final title = isSearching
         ? 'Tugas Tidak Ditemukan'
-        : _selectedFilter == TaskFilter.completed
-            ? 'Belum Ada Tugas Selesai'
-            : 'Tidak Ada Tugas Saat Ini';
+        : isCalendarFiltered
+            ? 'Tidak Ada Deadline Pada Tanggal Ini'
+            : _selectedFilter == TaskFilter.completed
+                ? 'Belum Ada Tugas Selesai'
+                : 'Tidak Ada Tugas Saat Ini';
 
     final message = isSearching
         ? 'Coba periksa kembali kata kunci pencarian Anda.'
-        : _selectedFilter == TaskFilter.completed
-            ? 'Selesaikan tugas dari daftar berjalan Anda.'
-            : 'Mulai dengan menambahkan tugas baru agar target Anda tercapai dengan teratur.';
+        : isCalendarFiltered
+            ? 'Tidak ada tenggat waktu tugas yang dijadwalkan pada ${TaskItem.formatIndonesianDate(_selectedCalendarDate!)}.'
+            : _selectedFilter == TaskFilter.completed
+                ? 'Selesaikan tugas dari daftar berjalan Anda.'
+                : 'Mulai dengan menambahkan tugas baru agar target Anda tercapai dengan teratur.';
 
     return Center(
       child: Padding(
@@ -1586,7 +1818,9 @@ class _HomePageState extends State<HomePage> {
               child: Icon(
                 isSearching
                     ? Icons.search_off_rounded
-                    : Icons.check_circle_outline_rounded,
+                    : isCalendarFiltered
+                        ? Icons.event_busy_rounded
+                        : Icons.check_circle_outline_rounded,
                 color: Theme.of(context).primaryColor,
                 size: 32,
               ),
@@ -1599,6 +1833,7 @@ class _HomePageState extends State<HomePage> {
                 fontWeight: FontWeight.w700,
                 color: textPrimary,
               ),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             ConstrainedBox(
@@ -1613,7 +1848,14 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            if (!isSearching && _selectedFilter != TaskFilter.completed) ...[
+            if (isCalendarFiltered) ...[
+              const SizedBox(height: 16),
+              TextButton.icon(
+                onPressed: () => setState(() => _selectedCalendarDate = null),
+                icon: const Icon(Icons.clear_all_rounded, size: 18),
+                label: const Text('Tampilkan Semua Tanggal'),
+              ),
+            ] else if (!isSearching && _selectedFilter != TaskFilter.completed) ...[
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(

@@ -17,7 +17,7 @@ class TaskFormDialog extends StatefulWidget {
         builder: (context) => Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 540),
+            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
             child: TaskFormDialog(existingTask: existingTask),
           ),
         ),
@@ -54,8 +54,11 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
   late final TextEditingController _titleController;
   late final TextEditingController _courseController;
   late final TextEditingController _notesController;
+  late final TextEditingController _newSubtaskController;
+
   late DateTime _deadline;
   late TaskPriority _priority;
+  late List<SubTask> _subtasks;
 
   bool get _isEditing => widget.existingTask != null;
 
@@ -66,12 +69,15 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     _titleController = TextEditingController(text: task?.title ?? '');
     _courseController = TextEditingController(text: task?.course ?? '');
     _notesController = TextEditingController(text: task?.notes ?? '');
+    _newSubtaskController = TextEditingController();
+
     _deadline = task?.deadline ??
         DateTime.now().add(const Duration(days: 1)).copyWith(
               minute: 0,
               second: 0,
             );
     _priority = task?.priority ?? TaskPriority.medium;
+    _subtasks = task?.subtasks.map((s) => s.copyWith()).toList() ?? [];
   }
 
   @override
@@ -79,6 +85,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     _titleController.dispose();
     _courseController.dispose();
     _notesController.dispose();
+    _newSubtaskController.dispose();
     super.dispose();
   }
 
@@ -115,6 +122,28 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     });
   }
 
+  void _addSubtask() {
+    final text = _newSubtaskController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      _subtasks.add(
+        SubTask(
+          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          title: text,
+          isCompleted: false,
+        ),
+      );
+      _newSubtaskController.clear();
+    });
+  }
+
+  void _removeSubtask(int index) {
+    setState(() {
+      _subtasks.removeAt(index);
+    });
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) return;
 
@@ -127,6 +156,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
       priority: _priority,
       notes: _notesController.text.trim(),
       isCompleted: widget.existingTask?.isCompleted ?? false,
+      subtasks: _subtasks,
     );
 
     Navigator.of(context).pop(task);
@@ -203,7 +233,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Isi detail tugas dengan jelas untuk mempermudah pemantauan deadline Anda.',
+                        'Lengkapi informasi tugas dan subtask untuk memantau progres secara detail.',
                         style: TextStyle(
                           fontSize: 13,
                           color: isDark
@@ -226,7 +256,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                 textCapitalization: TextCapitalization.sentences,
                 style: TextStyle(fontSize: 15, color: textPrimary),
                 decoration: const InputDecoration(
-                  hintText: 'Misal: Mengerjakan Bab 2 Skripsi',
+                  hintText: 'Misal: Mengerjakan Praktikum Mobile',
                   prefixIcon: Icon(Icons.title_rounded, size: 20),
                 ),
                 validator: (val) {
@@ -253,7 +283,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                 textCapitalization: TextCapitalization.words,
                 style: TextStyle(fontSize: 15, color: textPrimary),
                 decoration: const InputDecoration(
-                  hintText: 'Misal: Pemrograman Mobile / Pekerjaan',
+                  hintText: 'Misal: Pemrograman Mobile / Basis Data',
                   prefixIcon: Icon(Icons.folder_outlined, size: 20),
                 ),
                 validator: (val) {
@@ -356,7 +386,92 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
+
+              // ==========================================
+              // SUBTASKS MANAGER (Checklist Items)
+              // ==========================================
+              _buildFieldLabel('Daftar Subtask / Langkah Kerja', textPrimary: textPrimary),
+              const SizedBox(height: 6),
+
+              // Add Subtask row
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _newSubtaskController,
+                      style: TextStyle(fontSize: 14, color: textPrimary),
+                      decoration: InputDecoration(
+                        hintText: 'Tambah langkah subtask...',
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        prefixIcon: const Icon(Icons.add_task_rounded, size: 20),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.add_circle_rounded),
+                          color: Theme.of(context).primaryColor,
+                          onPressed: _addSubtask,
+                          tooltip: 'Tambah Subtask',
+                        ),
+                      ),
+                      onFieldSubmitted: (_) => _addSubtask(),
+                    ),
+                  ),
+                ],
+              ),
+              if (_subtasks.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppTheme.darkSurfaceSecondary
+                        : AppTheme.lightSurfaceSecondary,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Column(
+                    children: List.generate(_subtasks.length, (idx) {
+                      final sub = _subtasks[idx];
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Icon(
+                              sub.isCompleted
+                                  ? Icons.check_circle_rounded
+                                  : Icons.circle_outlined,
+                              size: 18,
+                              color: sub.isCompleted
+                                  ? const Color(0xFF16A34A)
+                                  : textSecondary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                sub.title,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: textPrimary,
+                                  decoration: sub.isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 18),
+                              color: textSecondary,
+                              tooltip: 'Hapus subtask',
+                              onPressed: () => _removeSubtask(idx),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
 
               // Notes Field
               _buildFieldLabel('Catatan Tambahan (Opsional)', textPrimary: textPrimary),

@@ -3,6 +3,7 @@ enum TaskPriority { low, medium, high }
 enum TaskFilter {
   all,
   today,
+  calendar,
   pending,
   completed,
   highPriority,
@@ -14,6 +15,45 @@ enum TaskSortBy {
   titleAsc,
 }
 
+class SubTask {
+  const SubTask({
+    required this.id,
+    required this.title,
+    this.isCompleted = false,
+  });
+
+  final String id;
+  final String title;
+  final bool isCompleted;
+
+  SubTask copyWith({
+    String? id,
+    String? title,
+    bool? isCompleted,
+  }) {
+    return SubTask(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      isCompleted: isCompleted ?? this.isCompleted,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'isCompleted': isCompleted,
+      };
+
+  factory SubTask.fromJson(Map<String, dynamic> json) {
+    return SubTask(
+      id: json['id'] as String? ??
+          DateTime.now().microsecondsSinceEpoch.toString(),
+      title: json['title'] as String? ?? '',
+      isCompleted: (json['isCompleted'] as bool?) ?? false,
+    );
+  }
+}
+
 class TaskItem {
   const TaskItem({
     required this.id,
@@ -23,6 +63,7 @@ class TaskItem {
     required this.priority,
     required this.notes,
     required this.isCompleted,
+    this.subtasks = const [],
   });
 
   final String id;
@@ -32,6 +73,20 @@ class TaskItem {
   final TaskPriority priority;
   final String notes;
   final bool isCompleted;
+  final List<SubTask> subtasks;
+
+  int get totalSubtasks => subtasks.length;
+  int get completedSubtasksCount =>
+      subtasks.where((s) => s.isCompleted).length;
+
+  double get progress {
+    if (subtasks.isEmpty) {
+      return isCompleted ? 1.0 : 0.0;
+    }
+    return completedSubtasksCount / subtasks.length;
+  }
+
+  int get progressPercent => (progress * 100).round();
 
   TaskItem copyWith({
     String? id,
@@ -41,6 +96,7 @@ class TaskItem {
     TaskPriority? priority,
     String? notes,
     bool? isCompleted,
+    List<SubTask>? subtasks,
   }) {
     return TaskItem(
       id: id ?? this.id,
@@ -50,6 +106,7 @@ class TaskItem {
       priority: priority ?? this.priority,
       notes: notes ?? this.notes,
       isCompleted: isCompleted ?? this.isCompleted,
+      subtasks: subtasks ?? this.subtasks,
     );
   }
 
@@ -61,6 +118,7 @@ class TaskItem {
         'priority': priority.name,
         'notes': notes,
         'isCompleted': isCompleted,
+        'subtasks': subtasks.map((s) => s.toJson()).toList(),
       };
 
   factory TaskItem.fromJson(Map<String, dynamic> json) {
@@ -75,6 +133,10 @@ class TaskItem {
       ),
       notes: (json['notes'] as String?) ?? '',
       isCompleted: (json['isCompleted'] as bool?) ?? false,
+      subtasks: (json['subtasks'] as List<dynamic>?)
+              ?.map((item) => SubTask.fromJson(item as Map<String, dynamic>))
+              .toList() ??
+          const [],
     );
   }
 
@@ -89,6 +151,20 @@ class TaskItem {
     return deadline.year == now.year &&
         deadline.month == now.month &&
         deadline.day == now.day;
+  }
+
+  bool get isDueTomorrow {
+    final now = DateTime.now();
+    final tomorrow = now.add(const Duration(days: 1));
+    return deadline.year == tomorrow.year &&
+        deadline.month == tomorrow.month &&
+        deadline.day == tomorrow.day;
+  }
+
+  bool isSameDay(DateTime other) {
+    return deadline.year == other.year &&
+        deadline.month == other.month &&
+        deadline.day == other.day;
   }
 
   String get relativeDeadlineText {

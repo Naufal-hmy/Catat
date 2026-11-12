@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import '../../models/task_item.dart';
 import '../../theme/app_theme.dart';
 
-class TaskCard extends StatelessWidget {
+class TaskCard extends StatefulWidget {
   const TaskCard({
     super.key,
     required this.task,
     required this.onToggle,
     required this.onEdit,
     required this.onDelete,
+    this.onSubtaskToggle,
     this.compact = false,
   });
 
@@ -16,18 +17,33 @@ class TaskCard extends StatelessWidget {
   final ValueChanged<TaskItem> onToggle;
   final ValueChanged<TaskItem> onEdit;
   final ValueChanged<TaskItem> onDelete;
+  final void Function(TaskItem task, int subtaskIndex)? onSubtaskToggle;
   final bool compact;
 
   @override
+  State<TaskCard> createState() => _TaskCardState();
+}
+
+class _TaskCardState extends State<TaskCard> {
+  bool _isSubtasksExpanded = true;
+
+  @override
   Widget build(BuildContext context) {
+    final task = widget.task;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final priorityColors = AppTheme.getPriorityColors(task.priority, isDark);
     final isLate = task.isOverdue;
 
     final cardBg = isDark ? AppTheme.darkSurface : AppTheme.lightSurface;
     final borderColor = isDark ? AppTheme.darkBorder : AppTheme.lightBorder;
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+
+    final hasSubtasks = task.subtasks.isNotEmpty;
+    final subtaskProgress = task.progress;
+    final subtaskPercent = task.progressPercent;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -53,7 +69,7 @@ class TaskCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => onEdit(task),
+          onTap: () => widget.onEdit(task),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -63,14 +79,14 @@ class TaskCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Accessible check target (48x48)
+                    // Accessible check target (44x44)
                     Semantics(
                       label: task.isCompleted
                           ? 'Tandai belum selesai: ${task.title}'
                           : 'Tandai selesai: ${task.title}',
                       button: true,
                       child: InkWell(
-                        onTap: () => onToggle(task),
+                        onTap: () => widget.onToggle(task),
                         borderRadius: BorderRadius.circular(24),
                         child: Container(
                           width: 44,
@@ -169,7 +185,9 @@ class TaskCard extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       icon: Icon(
                         Icons.more_vert_rounded,
-                        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+                        color: isDark
+                            ? const Color(0xFF94A3B8)
+                            : const Color(0xFF64748B),
                         size: 22,
                       ),
                       shape: RoundedRectangleBorder(
@@ -178,9 +196,9 @@ class TaskCard extends StatelessWidget {
                       ),
                       color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
                       onSelected: (value) {
-                        if (value == 'toggle') onToggle(task);
-                        if (value == 'edit') onEdit(task);
-                        if (value == 'delete') onDelete(task);
+                        if (value == 'toggle') widget.onToggle(task);
+                        if (value == 'edit') widget.onEdit(task);
+                        if (value == 'delete') widget.onDelete(task);
                       },
                       itemBuilder: (context) => [
                         PopupMenuItem(
@@ -212,7 +230,8 @@ class TaskCard extends StatelessWidget {
                           value: 'edit',
                           child: Row(
                             children: [
-                              Icon(Icons.edit_outlined, size: 18, color: textPrimary),
+                              Icon(Icons.edit_outlined,
+                                  size: 18, color: textPrimary),
                               const SizedBox(width: 10),
                               Text(
                                 'Ubah Tugas',
@@ -279,6 +298,232 @@ class TaskCard extends StatelessWidget {
                   ),
                 ],
 
+                // ==========================================
+                // SUBTASKS SECTION WITH PERCENTAGE GRAPHIC
+                // ==========================================
+                if (hasSubtasks) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppTheme.darkSurfaceSecondary.withValues(alpha: 0.6)
+                          : AppTheme.lightSurfaceSecondary.withValues(alpha: 0.8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark
+                            ? AppTheme.darkBorder
+                            : AppTheme.lightBorder,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Subtask title & toggle expand
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.checklist_rounded,
+                                  size: 16,
+                                  color: Theme.of(context).primaryColor,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Subtask (${task.completedSubtasksCount}/${task.totalSubtasks})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            InkWell(
+                              onTap: () => setState(() =>
+                                  _isSubtasksExpanded = !_isSubtasksExpanded),
+                              child: Row(
+                                children: [
+                                  Text(
+                                    _isSubtasksExpanded
+                                        ? 'Sembunyikan'
+                                        : 'Tampilkan',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                  ),
+                                  Icon(
+                                    _isSubtasksExpanded
+                                        ? Icons.keyboard_arrow_up_rounded
+                                        : Icons.keyboard_arrow_down_rounded,
+                                    size: 16,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        if (_isSubtasksExpanded) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // Left: Checklist of Subtasks
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: List.generate(task.subtasks.length,
+                                      (subIdx) {
+                                    final sub = task.subtasks[subIdx];
+                                    return InkWell(
+                                      onTap: () {
+                                        if (widget.onSubtaskToggle != null) {
+                                          widget.onSubtaskToggle!(task, subIdx);
+                                        }
+                                      },
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 5, horizontal: 2),
+                                        child: Row(
+                                          children: [
+                                            // Checkbox
+                                            AnimatedContainer(
+                                              duration: const Duration(
+                                                  milliseconds: 150),
+                                              width: 18,
+                                              height: 18,
+                                              decoration: BoxDecoration(
+                                                color: sub.isCompleted
+                                                    ? const Color(0xFF16A34A)
+                                                    : Colors.transparent,
+                                                borderRadius:
+                                                    BorderRadius.circular(5),
+                                                border: Border.all(
+                                                  color: sub.isCompleted
+                                                      ? const Color(0xFF16A34A)
+                                                      : (isDark
+                                                          ? const Color(0xFF64748B)
+                                                          : const Color(0xFF94A3B8)),
+                                                  width: 1.6,
+                                                ),
+                                              ),
+                                              child: sub.isCompleted
+                                                  ? const Icon(
+                                                      Icons.check_rounded,
+                                                      size: 14,
+                                                      color: Colors.white,
+                                                    )
+                                                  : null,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                sub.title,
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: sub.isCompleted
+                                                      ? textSecondary
+                                                      : textPrimary,
+                                                  decoration: sub.isCompleted
+                                                      ? TextDecoration
+                                                          .lineThrough
+                                                      : null,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }),
+                                ),
+                              ),
+
+                              const SizedBox(width: 12),
+
+                              // Right: Dedicated Percentage Graphic Chart
+                              Container(
+                                width: 78,
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 8, horizontal: 6),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppTheme.darkSurface
+                                      : Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isDark
+                                        ? AppTheme.darkBorder
+                                        : AppTheme.lightBorder,
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 44,
+                                      height: 44,
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          CircularProgressIndicator(
+                                            value: subtaskProgress,
+                                            strokeWidth: 4.5,
+                                            backgroundColor: isDark
+                                                ? const Color(0xFF2C3241)
+                                                : const Color(0xFFE2E8F0),
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                              subtaskProgress == 1.0
+                                                  ? const Color(0xFF16A34A)
+                                                  : Theme.of(context)
+                                                      .primaryColor,
+                                            ),
+                                          ),
+                                          Center(
+                                            child: Text(
+                                              '$subtaskPercent%',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                                color: textPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      subtaskProgress == 1.0
+                                          ? 'Selesai'
+                                          : '${task.completedSubtasksCount}/${task.totalSubtasks}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: subtaskProgress == 1.0
+                                            ? const Color(0xFF16A34A)
+                                            : textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 14),
 
                 // Bottom Meta Row: Priority Badge + Deadline Status
@@ -286,7 +531,8 @@ class TaskCard extends StatelessWidget {
                   children: [
                     // Priority Badge
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                       decoration: BoxDecoration(
                         color: priorityColors.bgColor,
                         borderRadius: BorderRadius.circular(8),
@@ -338,9 +584,8 @@ class TaskCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: isLate
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
+                                fontWeight:
+                                    isLate ? FontWeight.w700 : FontWeight.w500,
                                 color: isLate
                                     ? const Color(0xFFDC2626)
                                     : (isDark

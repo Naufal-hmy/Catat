@@ -57,36 +57,96 @@ class TaskStorage {
     }
   }
 
-  /// Default starter tasks for demonstration if the user opens a brand new clean database
+  /// Varied sample tasks for thorough testing
   static List<TaskItem> getStarterTasks() {
     final now = DateTime.now();
     return [
       TaskItem(
         id: 'starter_1',
-        title: 'Review materi ujian Pemrograman Mobile',
+        title: 'Project UTS Pemrograman Mobile - Redesign UI/UX',
         course: 'Pemrograman Mobile',
-        deadline: DateTime(now.year, now.month, now.day, 16, 0),
+        deadline: DateTime(now.year, now.month, now.day, 18, 0),
         priority: TaskPriority.high,
-        notes: 'Pelajari konsep State Management, Layout Responsive, dan Material 3.',
+        notes: 'Implementasi responsif Desktop & Mobile, Dark Mode, Subtask progress, dan Grafik Statistik.',
         isCompleted: false,
+        subtasks: [
+          const SubTask(id: 's1_1', title: 'Perancangan palet warna Dark/Light nyaman di mata', isCompleted: true),
+          const SubTask(id: 's1_2', title: 'Desain layout adaptif Desktop Sidebar & Mobile AppBar', isCompleted: true),
+          const SubTask(id: 's1_3', title: 'Fitur checklist subtask & grafik persentase', isCompleted: true),
+          const SubTask(id: 's1_4', title: 'Kalender deadline & panel notifikasi', isCompleted: false),
+          const SubTask(id: 's1_5', title: 'Push ke repositori GitHub Naufal-hmy', isCompleted: false),
+        ],
       ),
       TaskItem(
         id: 'starter_2',
-        title: 'Kumpulkan laporan praktikum basis data',
-        course: 'Basis Data Lanjut',
+        title: 'Tugas Makalah Machine Learning & Deep Learning',
+        course: 'Kecerdasan Buatan',
         deadline: DateTime(now.year, now.month, now.day + 1, 23, 59),
-        priority: TaskPriority.medium,
-        notes: 'Format PDF, pastikan ERD dan query SQL disertakan dengan rapi.',
+        priority: TaskPriority.high,
+        notes: 'Bandingkan arsitektur CNN vs Vision Transformer untuk klasifikasi citra medis.',
         isCompleted: false,
+        subtasks: [
+          const SubTask(id: 's2_1', title: 'Cari 5 paper rujukan IEEE / Scopus', isCompleted: true),
+          const SubTask(id: 's2_2', title: 'Susun BAB 1 Pendahuluan & Rumusan Masalah', isCompleted: true),
+          const SubTask(id: 's2_3', title: 'Analisis komparasi akurasi model', isCompleted: false),
+          const SubTask(id: 's2_4', title: 'Kesimpulan dan Daftar Pustaka format APA', isCompleted: false),
+        ],
       ),
       TaskItem(
         id: 'starter_3',
-        title: 'Diskusi kelompok perancangan antarmuka',
+        title: 'Praktikum Normalisasi Database & Query SQL',
+        course: 'Basis Data Lanjut',
+        deadline: DateTime(now.year, now.month, now.day - 1, 14, 30),
+        priority: TaskPriority.medium,
+        notes: 'Tugas telah melewati tenggat waktu kemarin, selesaikan revisi sebelum dosen input nilai.',
+        isCompleted: false,
+        subtasks: [
+          const SubTask(id: 's3_1', title: 'Normalisasi tabel hingga bentuk 3NF', isCompleted: true),
+          const SubTask(id: 's3_2', title: 'Optimasi query join dan indexing', isCompleted: false),
+          const SubTask(id: 's3_3', title: 'Export diagram skema relasional', isCompleted: false),
+        ],
+      ),
+      TaskItem(
+        id: 'starter_4',
+        title: 'Dokumentasi Software Requirement Specification (SRS)',
+        course: 'Rekayasa Perangkat Lunak',
+        deadline: DateTime(now.year, now.month, now.day + 3, 16, 0),
+        priority: TaskPriority.medium,
+        notes: 'Format standar IEEE 830, lengkapi Use Case Diagram dan Activity Diagram.',
+        isCompleted: false,
+        subtasks: [
+          const SubTask(id: 's4_1', title: 'Wawancara kebutuhan pengguna sistem', isCompleted: true),
+          const SubTask(id: 's4_2', title: 'Pembuatan diagram Use Case & narasi', isCompleted: false),
+          const SubTask(id: 's4_3', title: 'Spesifikasi kebutuhan fungsional & non-fungsional', isCompleted: false),
+        ],
+      ),
+      TaskItem(
+        id: 'starter_5',
+        title: 'Uji Aksesibilitas Heuristic Usability Testing',
         course: 'Interaksi Manusia & Komputer',
-        deadline: DateTime(now.year, now.month, now.day + 2, 10, 0),
+        deadline: DateTime(now.year, now.month, now.day + 5, 12, 0),
         priority: TaskPriority.low,
-        notes: 'Evaluasi aksesibilitas aplikasi untuk semua rentang usia.',
+        notes: 'Evaluasi kontras warna WCAG AAA dan ukuran tap target untuk ramah semua batasan umur.',
         isCompleted: true,
+        subtasks: [
+          const SubTask(id: 's5_1', title: 'Audit kontras teks mode terang & gelap', isCompleted: true),
+          const SubTask(id: 's5_2', title: 'Pastikan target sentuh tombol minimal 48dp', isCompleted: true),
+          const SubTask(id: 's5_3', title: 'Lakukan user testing dengan pengguna beragam usia', isCompleted: true),
+        ],
+      ),
+      TaskItem(
+        id: 'starter_6',
+        title: 'Simulasi Routing OSPF & Konfigurasi VLAN',
+        course: 'Jaringan Komputer',
+        deadline: DateTime(now.year, now.month, now.day + 7, 21, 0),
+        priority: TaskPriority.low,
+        notes: 'File lab Packet Tracer (.pkt) dan video screen recording pengujian ping.',
+        isCompleted: false,
+        subtasks: [
+          const SubTask(id: 's6_1', title: 'Subnetting IPv4 CIDR /26', isCompleted: true),
+          const SubTask(id: 's6_2', title: 'Konfigurasi switch VLAN 10 dan 20', isCompleted: false),
+          const SubTask(id: 's6_3', title: 'Verifikasi ping antar router gateway', isCompleted: false),
+        ],
       ),
     ];
   }
