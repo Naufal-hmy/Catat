@@ -24,6 +24,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<TaskItem> _tasks = [];
+  List<String> _courses = [];
   bool _isLoading = true;
 
   TaskFilter _selectedFilter = TaskFilter.all;
@@ -49,14 +50,25 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _initData() async {
-    final loaded = await TaskStorage.loadTasks();
-    if (loaded.isEmpty) {
-      // First run default starter tasks so user has instant varied visual feedback
+    final loadedTasks = await TaskStorage.loadTasks();
+    final loadedCourses = await TaskStorage.loadCourses();
+
+    if (loadedTasks.isEmpty) {
       _tasks = TaskStorage.getStarterTasks();
       await TaskStorage.saveTasks(_tasks);
     } else {
-      _tasks = loaded;
+      _tasks = loadedTasks;
     }
+
+    // Merge any distinct courses from tasks into loaded courses
+    final courseSet = Set<String>.from(loadedCourses);
+    for (final t in _tasks) {
+      if (t.course.trim().isNotEmpty) {
+        courseSet.add(t.course.trim());
+      }
+    }
+    _courses = courseSet.toList()..sort();
+    await TaskStorage.saveCourses(_courses);
 
     if (mounted) {
       setState(() => _isLoading = false);
@@ -67,10 +79,152 @@ class _HomePageState extends State<HomePage> {
     await TaskStorage.saveTasks(_tasks);
   }
 
+  Future<void> _saveCourses() async {
+    await TaskStorage.saveCourses(_courses);
+  }
+
+  // Folder / Mata Kuliah Management
+  Future<void> _addNewCourseDialog() async {
+    final textController = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.create_new_folder_rounded, color: Color(0xFF1D4ED8)),
+            SizedBox(width: 8),
+            Text('Tambah Folder Mata Kuliah'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Masukkan nama mata kuliah baru untuk mengelompokkan tugas:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: textController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                hintText: 'Contoh: Algoritma & Struktur Data',
+                prefixIcon: Icon(Icons.folder_outlined),
+              ),
+              onSubmitted: (val) {
+                if (val.trim().isNotEmpty) Navigator.pop(ctx, val.trim());
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              if (textController.text.trim().isNotEmpty) {
+                Navigator.pop(ctx, textController.text.trim());
+              }
+            },
+            child: const Text('Simpan ke Database'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty && mounted) {
+      if (!_courses.contains(result)) {
+        setState(() {
+          _courses.add(result);
+          _courses.sort();
+          _selectedCourse = result; // Auto open the created folder
+        });
+        await _saveCourses();
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Folder "$result" berhasil ditambahkan ke database!'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteCourseDialog(String course) async {
+    final tasksInCourse = _tasks.where((t) => t.course == course).length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Hapus Folder Mata Kuliah?'),
+        content: Text(
+          'Folder "$course" akan dihapus dari daftar database.'
+          '${tasksInCourse > 0 ? ' (Terdapat $tasksInCourse tugas di folder ini)' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      setState(() {
+        _courses.remove(course);
+        if (_selectedCourse == course) {
+          _selectedCourse = null;
+        }
+      });
+      await _saveCourses();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Folder "$course" telah dihapus dari database.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   // Task Operations
-  Future<void> _openTaskForm({TaskItem? task}) async {
-    final result = await TaskFormDialog.show(context, existingTask: task);
+  Future<void> _openTaskForm({TaskItem? task, String? prefilledCourse}) async {
+    final result = await TaskFormDialog.show(
+      context,
+      existingTask: task,
+      prefilledCourse: prefilledCourse ?? _selectedCourse,
+      availableCourses: _courses,
+    );
     if (result == null || !mounted) return;
+
+    // Check if new course added
+    if (result.course.trim().isNotEmpty && !_courses.contains(result.course.trim())) {
+      _courses.add(result.course.trim());
+      _courses.sort();
+      await _saveCourses();
+    }
 
     setState(() {
       final index = _tasks.indexWhere((item) => item.id == result.id);
@@ -101,10 +255,10 @@ class _HomePageState extends State<HomePage> {
     if (index == -1) return;
 
     final nextStatus = !task.isCompleted;
-    // If completing the task, also mark all subtasks complete for consistency
-    final updatedSubtasks = nextStatus
-        ? task.subtasks.map((s) => s.copyWith(isCompleted: true)).toList()
-        : task.subtasks;
+    // When main checkbox is toggled, sync all subtasks cleanly
+    final updatedSubtasks = task.subtasks
+        .map((s) => s.copyWith(isCompleted: nextStatus))
+        .toList();
 
     setState(() {
       _tasks[index] = task.copyWith(
@@ -135,15 +289,17 @@ class _HomePageState extends State<HomePage> {
 
     final subtasks = List<SubTask>.from(task.subtasks);
     final currentSub = subtasks[subtaskIndex];
+    // Toggle smoothly between true and false
     subtasks[subtaskIndex] =
         currentSub.copyWith(isCompleted: !currentSub.isCompleted);
 
+    // If all subtasks are complete, mark task complete. If any is unchecked, mark task uncomplete!
     final allDone = subtasks.isNotEmpty && subtasks.every((s) => s.isCompleted);
 
     setState(() {
       _tasks[index] = task.copyWith(
         subtasks: subtasks,
-        isCompleted: allDone ? true : task.isCompleted,
+        isCompleted: allDone,
       );
     });
     await _saveTasks();
@@ -191,7 +347,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  // Getters for Stats & Categories
+  // Getters for Stats
   int get _totalCount => _tasks.length;
   int get _completedCount => _tasks.where((t) => t.isCompleted).length;
   int get _pendingCount => _tasks.where((t) => !t.isCompleted).length;
@@ -207,16 +363,6 @@ class _HomePageState extends State<HomePage> {
     return overdue + dueToday + dueTomorrow;
   }
 
-  List<String> get _courseList {
-    final set = <String>{};
-    for (final t in _tasks) {
-      if (t.course.trim().isNotEmpty) {
-        set.add(t.course.trim());
-      }
-    }
-    return set.toList()..sort();
-  }
-
   List<TaskItem> get _filteredTasks {
     final query = _searchQuery.trim().toLowerCase();
 
@@ -226,7 +372,7 @@ class _HomePageState extends State<HomePage> {
         if (!task.isSameDay(_selectedCalendarDate!)) return false;
       }
 
-      // Course filter
+      // Folder / Course filter
       if (_selectedCourse != null && task.course != _selectedCourse) {
         return false;
       }
@@ -258,7 +404,6 @@ class _HomePageState extends State<HomePage> {
 
     // Sorting
     filtered.sort((a, b) {
-      // Completed items always sink to the bottom
       if (a.isCompleted != b.isCompleted) {
         return a.isCompleted ? 1 : -1;
       }
@@ -440,7 +585,7 @@ class _HomePageState extends State<HomePage> {
                         autofocus: true,
                         style: TextStyle(fontSize: 14, color: textPrimary),
                         decoration: InputDecoration(
-                          hintText: 'Ketik nama tugas, subtask, atau mata kuliah...',
+                          hintText: 'Ketik nama tugas, subtask, mata kuliah...',
                           prefixIcon: const Icon(Icons.search_rounded, size: 20),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
@@ -541,50 +686,204 @@ class _HomePageState extends State<HomePage> {
 
                     const SizedBox(height: 18),
 
-                    // Filter Tabs Horizontal List
+                    // Status Filters
                     _buildMobileFilterChips(isDark),
 
-                    // Active Course Filter Chip if selected
-                    if (_selectedCourse != null) ...[
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .primaryColor
-                                  .withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Mata Kuliah: $_selectedCourse',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () =>
-                                      setState(() => _selectedCourse = null),
-                                  child: Icon(
-                                    Icons.close_rounded,
-                                    size: 16,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
-                                ),
-                              ],
-                            ),
+                    const SizedBox(height: 14),
+
+                    // Folders / Mata Kuliah Horizontal Scroll on Mobile
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'FOLDER MATA KULIAH',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: textSecondary,
                           ),
+                        ),
+                        InkWell(
+                          onTap: _addNewCourseDialog,
+                          child: Row(
+                            children: [
+                              Icon(Icons.add_rounded,
+                                  size: 16, color: Theme.of(context).primaryColor),
+                              const SizedBox(width: 2),
+                              Text(
+                                'Tambah Folder',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).primaryColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ..._courses.map((course) {
+                            final count =
+                                _tasks.where((t) => t.course == course).length;
+                            final isSelected = _selectedCourse == course;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: InkWell(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedCourse = isSelected ? null : course;
+                                    _selectedCalendarDate = null;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 7),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Theme.of(context).primaryColor
+                                        : (isDark
+                                            ? AppTheme.darkSurface
+                                            : AppTheme.lightSurface),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? Theme.of(context).primaryColor
+                                          : (isDark
+                                              ? AppTheme.darkBorder
+                                              : AppTheme.lightBorder),
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.folder_outlined,
+                                        size: 16,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : Theme.of(context).primaryColor,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        course,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: isSelected
+                                              ? FontWeight.w700
+                                              : FontWeight.w600,
+                                          color: isSelected
+                                              ? Colors.white
+                                              : textPrimary,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? Colors.white
+                                                  .withValues(alpha: 0.22)
+                                              : (isDark
+                                                  ? AppTheme
+                                                      .darkSurfaceSecondary
+                                                  : AppTheme
+                                                      .lightSurfaceSecondary),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          '$count',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
                         ],
+                      ),
+                    ),
+
+                    // Active Folder Banner if a folder is selected
+                    if (_selectedCourse != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .primaryColor
+                              .withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Theme.of(context)
+                                .primaryColor
+                                .withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.folder_open_rounded,
+                                color: Theme.of(context).primaryColor, size: 22),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Folder: $_selectedCourse',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Theme.of(context).primaryColor,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Menampilkan tugas di dalam folder ini',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                              onPressed: () =>
+                                  _openTaskForm(prefilledCourse: _selectedCourse),
+                              icon: const Icon(Icons.add_rounded, size: 16),
+                              label: const Text('Tambah Tugas',
+                                  style: TextStyle(fontSize: 11)),
+                            ),
+                            InkWell(
+                              onTap: () => setState(() => _selectedCourse = null),
+                              child: const Icon(Icons.close_rounded, size: 18),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
 
@@ -643,14 +942,16 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openTaskForm(),
+        onPressed: () => _openTaskForm(prefilledCourse: _selectedCourse),
         backgroundColor: Theme.of(context).primaryColor,
         foregroundColor: Colors.white,
         elevation: 3,
         icon: const Icon(Icons.add_rounded, size: 22),
-        label: const Text(
-          'Tambah Tugas',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        label: Text(
+          _selectedCourse != null
+              ? 'Tambah ke $_selectedCourse'
+              : 'Tambah Tugas',
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
         ),
       ),
     );
@@ -672,9 +973,9 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       body: Row(
         children: [
-          // Left Sidebar (Navigation & Filters)
+          // Left Sidebar (Navigation & Folders)
           Container(
-            width: 290,
+            width: 300,
             decoration: BoxDecoration(
               color: sidebarBg,
               border: Border(right: BorderSide(color: borderColor, width: 1.2)),
@@ -846,36 +1147,53 @@ class _HomePageState extends State<HomePage> {
                         },
                       ),
 
-                      if (_courseList.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        Text(
-                          'MATA KULIAH / KATEGORI',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                            color: textSecondary,
+                      // ==========================================
+                      // FOLDER MATA KULIAH (SAVED IN DATABASE)
+                      // ==========================================
+                      const SizedBox(height: 18),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'FOLDER MATA KULIAH',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                              color: textSecondary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        ..._courseList.map((course) {
-                          final count =
-                              _tasks.where((t) => t.course == course).length;
-                          final isSelected = _selectedCourse == course;
-                          return _buildSidebarNavItem(
-                            title: course,
-                            icon: Icons.folder_outlined,
-                            count: count,
-                            isSelected: isSelected,
-                            onTap: () {
-                              setState(() {
-                                _selectedCourse = isSelected ? null : course;
-                                _selectedCalendarDate = null;
-                              });
-                            },
-                          );
-                        }),
-                      ],
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline_rounded,
+                                size: 18),
+                            tooltip: 'Tambah Folder Baru ke Database',
+                            color: Theme.of(context).primaryColor,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: _addNewCourseDialog,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      ..._courses.map((course) {
+                        final count =
+                            _tasks.where((t) => t.course == course).length;
+                        final isSelected = _selectedCourse == course;
+                        return _buildSidebarNavItem(
+                          title: course,
+                          icon: Icons.folder_outlined,
+                          count: count,
+                          isSelected: isSelected,
+                          onTap: () {
+                            setState(() {
+                              _selectedCourse = isSelected ? null : course;
+                              _selectedCalendarDate = null;
+                            });
+                          },
+                          onDelete: () => _deleteCourseDialog(course),
+                        );
+                      }),
                     ],
                   ),
                 ),
@@ -1018,11 +1336,14 @@ class _HomePageState extends State<HomePage> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: () => _openTaskForm(),
+                        onPressed: () =>
+                            _openTaskForm(prefilledCourse: _selectedCourse),
                         icon: const Icon(Icons.add_rounded, size: 20),
-                        label: const Text(
-                          'Tambah Tugas',
-                          style: TextStyle(
+                        label: Text(
+                          _selectedCourse != null
+                              ? 'Tambah di Folder'
+                              : 'Tambah Tugas',
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                           ),
@@ -1048,6 +1369,78 @@ class _HomePageState extends State<HomePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Active Folder Banner if a folder is selected
+                              if (_selectedCourse != null) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 12),
+                                  margin: const EdgeInsets.only(bottom: 16),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context)
+                                        .primaryColor
+                                        .withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .primaryColor
+                                          .withValues(alpha: 0.25),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.folder_open_rounded,
+                                          color: Theme.of(context).primaryColor,
+                                          size: 26),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Folder: $_selectedCourse',
+                                              style: TextStyle(
+                                                fontSize: 15,
+                                                fontWeight: FontWeight.w800,
+                                                color: Theme.of(context)
+                                                    .primaryColor,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Menampilkan ${_filteredTasks.length} tugas dalam folder mata kuliah ini',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor:
+                                              Theme.of(context).primaryColor,
+                                          foregroundColor: Colors.white,
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                        onPressed: () => _openTaskForm(
+                                            prefilledCourse: _selectedCourse),
+                                        icon: const Icon(Icons.add_rounded,
+                                            size: 16),
+                                        label: const Text('Tambah Tugas Baru'),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      IconButton(
+                                        icon: const Icon(Icons.close_rounded),
+                                        tooltip: 'Tutup Tampilan Folder',
+                                        onPressed: () => setState(
+                                            () => _selectedCourse = null),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+
                               // Heading Row
                               Row(
                                 mainAxisAlignment:
@@ -1449,6 +1842,7 @@ class _HomePageState extends State<HomePage> {
     required int count,
     required bool isSelected,
     required VoidCallback onTap,
+    VoidCallback? onDelete,
     Color? iconColor,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1520,6 +1914,21 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ),
                 ),
+                if (onDelete != null) ...[
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: onDelete,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1765,7 +2174,7 @@ class _HomePageState extends State<HomePage> {
       return 'Tenggat: ${TaskItem.formatIndonesianDate(_selectedCalendarDate!)}';
     }
     if (_selectedCourse != null) {
-      return 'Mata Kuliah: $_selectedCourse';
+      return 'Folder: $_selectedCourse';
     }
     return switch (_selectedFilter) {
       TaskFilter.all => 'Semua Tugas',
@@ -1785,22 +2194,27 @@ class _HomePageState extends State<HomePage> {
 
     final isSearching = _searchQuery.isNotEmpty;
     final isCalendarFiltered = _selectedCalendarDate != null;
+    final isFolderFiltered = _selectedCourse != null;
 
     final title = isSearching
         ? 'Tugas Tidak Ditemukan'
         : isCalendarFiltered
             ? 'Tidak Ada Deadline Pada Tanggal Ini'
-            : _selectedFilter == TaskFilter.completed
-                ? 'Belum Ada Tugas Selesai'
-                : 'Tidak Ada Tugas Saat Ini';
+            : isFolderFiltered
+                ? 'Belum Ada Tugas di Folder "$_selectedCourse"'
+                : _selectedFilter == TaskFilter.completed
+                    ? 'Belum Ada Tugas Selesai'
+                    : 'Tidak Ada Tugas Saat Ini';
 
     final message = isSearching
         ? 'Coba periksa kembali kata kunci pencarian Anda.'
         : isCalendarFiltered
             ? 'Tidak ada tenggat waktu tugas yang dijadwalkan pada ${TaskItem.formatIndonesianDate(_selectedCalendarDate!)}.'
-            : _selectedFilter == TaskFilter.completed
-                ? 'Selesaikan tugas dari daftar berjalan Anda.'
-                : 'Mulai dengan menambahkan tugas baru agar target Anda tercapai dengan teratur.';
+            : isFolderFiltered
+                ? 'Tambahkan tugas baru langsung ke dalam folder ini.'
+                : _selectedFilter == TaskFilter.completed
+                    ? 'Selesaikan tugas dari daftar berjalan Anda.'
+                    : 'Mulai dengan menambahkan tugas baru agar target Anda tercapai dengan teratur.';
 
     return Center(
       child: Padding(
@@ -1820,7 +2234,9 @@ class _HomePageState extends State<HomePage> {
                     ? Icons.search_off_rounded
                     : isCalendarFiltered
                         ? Icons.event_busy_rounded
-                        : Icons.check_circle_outline_rounded,
+                        : isFolderFiltered
+                            ? Icons.folder_open_rounded
+                            : Icons.check_circle_outline_rounded,
                 color: Theme.of(context).primaryColor,
                 size: 32,
               ),
@@ -1854,6 +2270,24 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () => setState(() => _selectedCalendarDate = null),
                 icon: const Icon(Icons.clear_all_rounded, size: 18),
                 label: const Text('Tampilkan Semua Tanggal'),
+              ),
+            ] else if (isFolderFiltered) ...[
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(200, 46),
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () => _openTaskForm(prefilledCourse: _selectedCourse),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: const Text(
+                  'Tambah Tugas di Folder Ini',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ] else if (!isSearching && _selectedFilter != TaskFilter.completed) ...[
               const SizedBox(height: 20),

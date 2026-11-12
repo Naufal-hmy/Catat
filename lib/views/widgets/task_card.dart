@@ -374,71 +374,75 @@ class _TaskCardState extends State<TaskCard> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              // Left: Checklist of Subtasks
+                              // Left: Checklist of Subtasks (Interactive Toggle & Un-toggle)
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: List.generate(task.subtasks.length,
                                       (subIdx) {
                                     final sub = task.subtasks[subIdx];
-                                    return InkWell(
-                                      onTap: () {
-                                        if (widget.onSubtaskToggle != null) {
-                                          widget.onSubtaskToggle!(task, subIdx);
-                                        }
-                                      },
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 5, horizontal: 2),
-                                        child: Row(
-                                          children: [
-                                            // Checkbox
-                                            AnimatedContainer(
-                                              duration: const Duration(
-                                                  milliseconds: 150),
-                                              width: 18,
-                                              height: 18,
-                                              decoration: BoxDecoration(
-                                                color: sub.isCompleted
-                                                    ? const Color(0xFF16A34A)
-                                                    : Colors.transparent,
-                                                borderRadius:
-                                                    BorderRadius.circular(5),
-                                                border: Border.all(
+                                    return Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        onTap: () {
+                                          if (widget.onSubtaskToggle != null) {
+                                            widget.onSubtaskToggle!(task, subIdx);
+                                          }
+                                        },
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 6, horizontal: 4),
+                                          child: Row(
+                                            children: [
+                                              // Checkbox box
+                                              AnimatedContainer(
+                                                duration: const Duration(
+                                                    milliseconds: 160),
+                                                width: 20,
+                                                height: 20,
+                                                decoration: BoxDecoration(
                                                   color: sub.isCompleted
                                                       ? const Color(0xFF16A34A)
-                                                      : (isDark
-                                                          ? const Color(0xFF64748B)
-                                                          : const Color(0xFF94A3B8)),
-                                                  width: 1.6,
+                                                      : Colors.transparent,
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  border: Border.all(
+                                                    color: sub.isCompleted
+                                                        ? const Color(0xFF16A34A)
+                                                        : (isDark
+                                                            ? const Color(0xFF64748B)
+                                                            : const Color(0xFF94A3B8)),
+                                                    width: 1.8,
+                                                  ),
+                                                ),
+                                                child: sub.isCompleted
+                                                    ? const Icon(
+                                                        Icons.check_rounded,
+                                                        size: 15,
+                                                        color: Colors.white,
+                                                      )
+                                                    : null,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Text(
+                                                  sub.title,
+                                                  style: TextStyle(
+                                                    fontSize: 13,
+                                                    color: sub.isCompleted
+                                                        ? textSecondary
+                                                        : textPrimary,
+                                                    decoration: sub.isCompleted
+                                                        ? TextDecoration
+                                                            .lineThrough
+                                                        : null,
+                                                    decorationColor: textSecondary,
+                                                  ),
                                                 ),
                                               ),
-                                              child: sub.isCompleted
-                                                  ? const Icon(
-                                                      Icons.check_rounded,
-                                                      size: 14,
-                                                      color: Colors.white,
-                                                    )
-                                                  : null,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                sub.title,
-                                                style: TextStyle(
-                                                  fontSize: 12.5,
-                                                  color: sub.isCompleted
-                                                      ? textSecondary
-                                                      : textPrimary,
-                                                  decoration: sub.isCompleted
-                                                      ? TextDecoration
-                                                          .lineThrough
-                                                      : null,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
+                                            ],
+                                          ),
                                         ),
                                       ),
                                     );
@@ -450,9 +454,9 @@ class _TaskCardState extends State<TaskCard> {
 
                               // Right: Dedicated Percentage Graphic Chart
                               Container(
-                                width: 78,
+                                width: 80,
                                 padding: const EdgeInsets.symmetric(
-                                    vertical: 8, horizontal: 6),
+                                    vertical: 10, horizontal: 6),
                                 decoration: BoxDecoration(
                                   color: isDark
                                       ? AppTheme.darkSurface
@@ -468,8 +472,8 @@ class _TaskCardState extends State<TaskCard> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     SizedBox(
-                                      width: 44,
-                                      height: 44,
+                                      width: 46,
+                                      height: 46,
                                       child: Stack(
                                         fit: StackFit.expand,
                                         children: [

@@ -6,6 +6,16 @@ import '../models/task_item.dart';
 class TaskStorage {
   static const String _tasksKey = 'my_task_app_tasks_v1';
   static const String _themeKey = 'app_theme_mode_pref';
+  static const String _coursesKey = 'my_task_app_courses_v1';
+
+  static const List<String> defaultCourses = [
+    'Pemrograman Mobile',
+    'Kecerdasan Buatan',
+    'Basis Data Lanjut',
+    'Rekayasa Perangkat Lunak',
+    'Interaksi Manusia & Komputer',
+    'Jaringan Komputer',
+  ];
 
   static Future<List<TaskItem>> loadTasks() async {
     try {
@@ -28,6 +38,28 @@ class TaskStorage {
       final prefs = await SharedPreferences.getInstance();
       final encoded = jsonEncode(tasks.map((task) => task.toJson()).toList());
       return await prefs.setString(_tasksKey, encoded);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<String>> loadCourses() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(_coursesKey);
+      if (saved != null && saved.isNotEmpty) {
+        return saved;
+      }
+    } catch (_) {
+      // Fallback
+    }
+    return List<String>.from(defaultCourses);
+  }
+
+  static Future<bool> saveCourses(List<String> courses) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await prefs.setStringList(_coursesKey, courses);
     } catch (_) {
       return false;
     }

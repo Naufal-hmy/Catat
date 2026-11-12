@@ -1,13 +1,26 @@
 import 'package:flutter/material.dart';
 import '../models/task_item.dart';
+import '../services/task_storage.dart';
 import '../theme/app_theme.dart';
 
 class TaskFormDialog extends StatefulWidget {
-  const TaskFormDialog({super.key, this.existingTask});
+  const TaskFormDialog({
+    super.key,
+    this.existingTask,
+    this.prefilledCourse,
+    this.availableCourses = const [],
+  });
 
   final TaskItem? existingTask;
+  final String? prefilledCourse;
+  final List<String> availableCourses;
 
-  static Future<TaskItem?> show(BuildContext context, {TaskItem? existingTask}) {
+  static Future<TaskItem?> show(
+    BuildContext context, {
+    TaskItem? existingTask,
+    String? prefilledCourse,
+    List<String> availableCourses = const [],
+  }) {
     final isDesktop = MediaQuery.of(context).size.width >= 768;
 
     if (isDesktop) {
@@ -17,8 +30,12 @@ class TaskFormDialog extends StatefulWidget {
         builder: (context) => Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 560, maxHeight: 720),
-            child: TaskFormDialog(existingTask: existingTask),
+            constraints: const BoxConstraints(maxWidth: 580, maxHeight: 760),
+            child: TaskFormDialog(
+              existingTask: existingTask,
+              prefilledCourse: prefilledCourse,
+              availableCourses: availableCourses,
+            ),
           ),
         ),
       );
@@ -37,7 +54,11 @@ class TaskFormDialog extends StatefulWidget {
               ),
             ),
             body: SafeArea(
-              child: TaskFormDialog(existingTask: existingTask),
+              child: TaskFormDialog(
+                existingTask: existingTask,
+                prefilledCourse: prefilledCourse,
+                availableCourses: availableCourses,
+              ),
             ),
           ),
         ),
@@ -59,6 +80,8 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
   late DateTime _deadline;
   late TaskPriority _priority;
   late List<SubTask> _subtasks;
+  late List<String> _courseOptions;
+  bool _isCustomCourse = false;
 
   bool get _isEditing => widget.existingTask != null;
 
@@ -67,7 +90,25 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     super.initState();
     final task = widget.existingTask;
     _titleController = TextEditingController(text: task?.title ?? '');
-    _courseController = TextEditingController(text: task?.course ?? '');
+
+    // Setup initial course
+    final initialCourse = task?.course ?? widget.prefilledCourse ?? '';
+    _courseController = TextEditingController(text: initialCourse);
+
+    // Setup available courses
+    final set = Set<String>.from(widget.availableCourses);
+    if (initialCourse.trim().isNotEmpty) {
+      set.add(initialCourse.trim());
+    }
+    _courseOptions = set.toList()..sort();
+    if (_courseOptions.isEmpty) {
+      _courseOptions = List.from(TaskStorage.defaultCourses);
+    }
+
+    if (initialCourse.isNotEmpty && !_courseOptions.contains(initialCourse)) {
+      _isCustomCourse = true;
+    }
+
     _notesController = TextEditingController(text: task?.notes ?? '');
     _newSubtaskController = TextEditingController();
 
@@ -233,7 +274,7 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Lengkapi informasi tugas dan subtask untuk memantau progres secara detail.',
+                        'Pilih folder mata kuliah dari database atau buat baru, lalu lengkapi subtask untuk melacak progres.',
                         style: TextStyle(
                           fontSize: 13,
                           color: isDark
@@ -271,28 +312,100 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
               ),
               const SizedBox(height: 18),
 
-              // Course / Category Field
-              _buildFieldLabel(
-                'Mata Kuliah / Kategori',
-                required: true,
-                textPrimary: textPrimary,
+              // ==========================================
+              // MATA KULIAH / FOLDER SELECTOR (FROM DATABASE OR NEW)
+              // ==========================================
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildFieldLabel(
+                    'Folder Mata Kuliah',
+                    required: true,
+                    textPrimary: textPrimary,
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _isCustomCourse = !_isCustomCourse;
+                        if (!_isCustomCourse && _courseOptions.isNotEmpty) {
+                          _courseController.text = _courseOptions.first;
+                        } else {
+                          _courseController.clear();
+                        }
+                      });
+                    },
+                    icon: Icon(
+                      _isCustomCourse
+                          ? Icons.list_rounded
+                          : Icons.add_circle_outline_rounded,
+                      size: 16,
+                    ),
+                    label: Text(
+                      _isCustomCourse
+                          ? 'Pilih dari Database'
+                          : '+ Ketik Mata Kuliah Baru',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 6),
-              TextFormField(
-                controller: _courseController,
-                textCapitalization: TextCapitalization.words,
-                style: TextStyle(fontSize: 15, color: textPrimary),
-                decoration: const InputDecoration(
-                  hintText: 'Misal: Pemrograman Mobile / Basis Data',
-                  prefixIcon: Icon(Icons.folder_outlined, size: 20),
+
+              if (!_isCustomCourse) ...[
+                // Dropdown from Database
+                DropdownButtonFormField<String>(
+                  initialValue: _courseOptions.contains(_courseController.text)
+                      ? _courseController.text
+                      : (_courseOptions.isNotEmpty ? _courseOptions.first : null),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.folder_outlined, size: 20),
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  ),
+                  dropdownColor: surfaceColor,
+                  style: TextStyle(fontSize: 15, color: textPrimary),
+                  items: _courseOptions.map((c) {
+                    return DropdownMenuItem<String>(
+                      value: c,
+                      child: Text(c, overflow: TextOverflow.ellipsis),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() {
+                        _courseController.text = val;
+                      });
+                    }
+                  },
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Pilih salah satu mata kuliah.';
+                    }
+                    return null;
+                  },
                 ),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Mata kuliah/kategori wajib diisi.';
-                  }
-                  return null;
-                },
-              ),
+              ] else ...[
+                // Custom Text Input
+                TextFormField(
+                  controller: _courseController,
+                  textCapitalization: TextCapitalization.words,
+                  style: TextStyle(fontSize: 15, color: textPrimary),
+                  decoration: const InputDecoration(
+                    hintText: 'Ketik nama mata kuliah baru...',
+                    prefixIcon: Icon(Icons.create_new_folder_outlined, size: 20),
+                  ),
+                  validator: (val) {
+                    if (val == null || val.trim().isEmpty) {
+                      return 'Nama mata kuliah tidak boleh kosong.';
+                    }
+                    return null;
+                  },
+                ),
+              ],
               const SizedBox(height: 18),
 
               // Deadline Picker
@@ -436,14 +549,22 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(
                           children: [
-                            Icon(
-                              sub.isCompleted
-                                  ? Icons.check_circle_rounded
-                                  : Icons.circle_outlined,
-                              size: 18,
-                              color: sub.isCompleted
-                                  ? const Color(0xFF16A34A)
-                                  : textSecondary,
+                            InkWell(
+                              onTap: () {
+                                setState(() {
+                                  _subtasks[idx] = sub.copyWith(
+                                      isCompleted: !sub.isCompleted);
+                                });
+                              },
+                              child: Icon(
+                                sub.isCompleted
+                                    ? Icons.check_circle_rounded
+                                    : Icons.circle_outlined,
+                                size: 20,
+                                color: sub.isCompleted
+                                    ? const Color(0xFF16A34A)
+                                    : textSecondary,
+                              ),
                             ),
                             const SizedBox(width: 10),
                             Expanded(
